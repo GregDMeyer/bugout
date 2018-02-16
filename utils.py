@@ -182,6 +182,7 @@ def read_binary_file(filename, field_names, format_spec, record_length):
     contents = []
 
     with open(filename, 'rb') as f:
+        f.seek(record_length)
         for chunk in iter(partial(f.read, record_length), ''):
             if not chunk:
                 break
