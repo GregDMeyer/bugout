@@ -10,6 +10,8 @@ from os import listdir
 from string import ascii_letters, digits, punctuation
 valid_chars = ascii_letters + digits + punctuation
 
+DEBUG = True
+
 ### INTERFACE
 
 def retro():
@@ -110,9 +112,11 @@ def parse_and_write(directory):
         return
 
     for ftype in valid_files:
+
+        if DEBUG:
+            print('\nProcessing file %s' % path.join(directory, ftype))
+
         data, extra_data = read_bugin(directory, ftype)
-        if data is None:
-            print(ftype)
 
         with open(path.join(directory,ftype+'.csv'), 'w') as f:
 
@@ -120,12 +124,52 @@ def parse_and_write(directory):
             f.write('\n')
 
             for d in data:
-                f.write(','.join(str(v) for _,v in d))
+                s = ''
+                for _,v in d:
+                    ss = str(v)
+                    if ',' in ss:
+                        ss = '"%s"' % ss
+                    s += ss + ','
+                f.write(s)
                 f.write('\n')
 
     return
 
 ### FILE READING
+
+def read_bugin(directory, file_type):
+    '''
+    Actually read in bugin files!
+
+    Parameters
+    ----------
+
+    directory : str
+        The directory to read from
+
+    file_type : str
+        Which file to read. Options are SAMPLE, SPECIES, ABUNDAN,
+        USER, SPSADD, HEADER.
+    '''
+
+    if file_type in binary_types:
+        extra_data = None
+        d = convert_fields(binary_types[file_type])
+        rtn = read_binary_file(path.join(directory, file_type), **d)
+
+    elif file_type in ascii_types:
+        extra_data = None
+        rtn = read_ascii_file(path.join(directory, file_type),
+                              **ascii_types[file_type])
+
+    elif file_type in user_types:
+        d = convert_fields(binary_types['SPECIES'])
+        rtn, extra_data = read_user_file(path.join(directory, file_type), **d)
+
+    else:
+        raise ValueError('Unrecognized file type %s' % file_type)
+
+    return rtn, extra_data
 
 def read_user_file(filename, field_names, format_spec, record_length):
     contents = []
@@ -135,6 +179,7 @@ def read_user_file(filename, field_names, format_spec, record_length):
 
     with open(filename, 'r') as f:
         # get through the initial header part
+        # TODO: assert this has the right format
         f.readline()
         qualifiers = []
         for line in f:
@@ -182,7 +227,7 @@ def read_binary_file(filename, field_names, format_spec, record_length):
     contents = []
 
     with open(filename, 'rb') as f:
-        f.seek(record_length)
+        #f.seek(record_length)
         for chunk in iter(partial(f.read, record_length), ''):
             if not chunk:
                 break
@@ -217,16 +262,24 @@ def bytes_to_list(b, format_spec, field_names):
     formats = parse_format_string(format_spec)
 
     rtn = []
-    for fmt, name in zip(formats, field_names):
+    for n, (fmt, name) in enumerate(zip(formats, field_names)):
         cur = b[:fmt['size']]
         b = b[fmt['size']:]
 
         if fmt['type'] == 'A':
-            val = cur.decode('ASCII')
+            try:
+                val = cur.decode('ASCII')
+            except UnicodeDecodeError:
+                print('Decode failed for field "%s". Value was %s' % (name,cur))
+
         elif fmt['type'] == 'I':
             val = int.from_bytes(cur, 'big')
+
         elif fmt['type'] == 'X':
+            if DEBUG and cur != b' ':
+                print('Threw away bytes at format index %d:\n%s' % (n, cur))
             continue
+
         elif fmt['type'] == 'F':
             try:
                 val = float(cur)
@@ -235,84 +288,75 @@ def bytes_to_list(b, format_spec, field_names):
 
         rtn.append((name,val))
 
+    if DEBUG and b:
+        print('Remaining bytes:%s\n' % b)
+
     return rtn
 
-def read_bugin(directory, file_type):
-    '''
-    Actually read in bugin files!
+def convert_fields(d):
 
-    Parameters
-    ----------
+    rtn = {'field_names' : []}
+    fields = []
 
-    directory : str
-        The directory to read from
+    for k, f in d['fields']:
+        rtn['field_names'].append(k)
+        fields.append(f)
 
-    file_type : str
-        Which file to read. Options are SAMPLE, SPECIES, ABUNDAN,
-        USER, SPSADD, HEADER.
-    '''
+    rtn['format_spec'] = '(%s)' % ', '.join(fields)
+    rtn['record_length'] = d['record_length']
 
-    if file_type in binary_types:
-        extra_data = None
-        rtn = read_binary_file(path.join(directory, file_type),
-                               **binary_types[file_type])
+    return rtn
 
-    elif file_type in ascii_types:
-        extra_data = None
-        rtn = read_ascii_file(path.join(directory, file_type),
-                              **ascii_types[file_type])
-
-    elif file_type in user_types:
-        rtn, extra_data = read_user_file(path.join(directory, file_type),
-                                         **binary_types['SPECIES'])
-
-    else:
-        raise ValueError('Unrecognized file type %s' % file_type)
-
-    return rtn, extra_data
+### DEFINITIONS OF FILE FORMATS
 
 binary_types = {
     'SAMPLES' : {
         'record_length' : 200,
-        'format_spec' : '(2F8.2, I4, A40, A4, A25, A5, A5, A4, A32, A6, A50, A1)',
-        'field_names' : [
-            'Sample Top',
-            'Sample Bottom',
-            'Sample Index',
-            'Sample Comment',
-            'Lithology Code',
-            'Lithology Data',
-            'Bathymetry Top',
-            'Bathymetry Bottom',
-            'Depositional Environment Code',
-            'Depositional Environment Data',
-            'Age Code',
-            'Zone Information',
-            'Stratigraphic Break'
-        ]
+        'fields' : [
+            ('Sample Top',      'F8.2'),
+            ('Sample Bottom',   'F8.2'),
+            ('Sample Index',    'I1'),
+            ('Sample Comment',  'A40'),
+            ('',                '1X'),
+            ('Lithology Code',  'A4'),
+            ('Lithology Data',  'A25'),
+            ('Bathymetry Top; Bathymetry Bottom', 'A10'),
+            ('Depositional Environment Code', 'A4'),
+            ('Depositional Environment Data', 'A32'),
+            ('Age Code',        'A6'),
+            ('Zone Information','A50'),
+            ('Stratigraphic Break','A1')
+        ],
+    },
+    'SAMPLE2' : {
+        'record_length' : 1020,
+        'fields' : [
+            ('Sample Top',      'I2'),
+            ('Sample Bottom',   'I2'),
+            ('Sample Index',    'X52'),
+            ('Sample Comment',  'A248'),
+            ('Bathymetry',      'A240'),
+            ('Depositional Environment', 'A240'),
+            ('Zone Information','A240'),
+        ],
     },
     'SPECIES' : {
         'record_length' : 65,
-        'format_spec' : '(A7, 1X, A50, A2, A1)',
-        'field_names' : [
-            'Species Code',
-            '',
-            'Taxa',
-            'Qualifier',
-            'Active/Not Active Flag'
-        ]
+        'fields' : [
+            ('Species Code',    'A7'),
+            ('Taxa',            'A50'),
+            ('Qualifier',       'A2'),
+            ('Active/Not Active','A1'),
+        ],
     },
     'ABUNDAN' : {
         'record_length' : 15,
-        'format_spec' : '(A5, 1X, I3, 1X, A1, I4)',
-        'field_names' : [
-            'Frequency',
-            '',
-            'Pointer to SPECIES File',
-            '',
-            'Marker or Rework Flag',
-            'Pointer to SAMPLES File'
-        ]
+        'fields' : [
+            ('Frequency',               'A5'),
+            ('Pointer to SPECIES File', 'I2'),
+            ('Marker or Rework Flag',   'A1'),
+            ('Pointer to SAMPLES File', 'I7')
+        ],
     }
 }
 
