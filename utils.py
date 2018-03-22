@@ -1,3 +1,7 @@
+'''
+This file is part of BUGOUT
+(c) Greg Meyer, 2018
+'''
 
 from time import sleep
 from sys import stdout, stderr
@@ -5,7 +9,7 @@ from fortranformat import FortranRecordReader
 from os import path
 from functools import partial
 import numpy as np
-from os.path import isdir
+from os.path import isdir, isfile
 from os import listdir
 from string import ascii_letters, digits, punctuation
 valid_chars = ascii_letters + digits + punctuation
@@ -26,11 +30,13 @@ def retro():
 
     ''')
 
+    sleep(1)
+
     slow_output('''PLEASE INPUT DIRECTORY NAME: ''')
-    directory = input()
+    directory = input().strip()
     while not isdir(directory):
         slow_output('''INVALID DIRECTORY. TRY AGAIN: ''')
-        directory = input()
+        directory = input().strip()
 
     file_types = list(binary_types) + \
                  list(ascii_types) + \
@@ -86,12 +92,163 @@ def slow_output(s):
         if c in valid_chars:
             sleep(0.015)
 
-def parse_dirs(dirs):
+def parse_dirs_raw(dirs):
     '''
-    The boring, actually useful way
+    Generate raw CSV files from the BUGIN files
     '''
     for directory in dirs:
         parse_and_write(directory)
+
+def parse_dirs_combined(dirs):
+    '''
+    Generated clean CSV files combining the data.
+    '''
+    for directory in dirs:
+        try:
+            combine(directory)
+        except:
+            print('Read failed for directory "%s"' % directory)
+            continue
+
+def gen_master_samples(dirs, outfname):
+    '''
+    Generate a master samples CSV combining the sample lists in all of dirs,
+    and write it to outfname.
+    '''
+
+    with open(outfname, 'w') as fout:
+
+        first = True
+        for d in dirs:
+            if not isfile(path.join(d,'clean_samples.csv')):
+                # need to generate it
+                try:
+                    success = combine(d)
+                except Exception as e:
+                    print('Read failed for directory "%s"' % d)
+                    success = False
+
+                if not success:
+                    continue
+
+            with open(path.join(d,'clean_samples.csv')) as fin:
+                # skip the headers on all but the first one
+                if not first:
+                    fin.readline()
+                else:
+                    first = False
+
+                fout.write(fin.read())
+
+def combine(directory):
+    '''
+    Read in SAMPLES, SPECIES, ABUNDAN, and HEADER, and collect them into one file.
+    '''
+
+    required = ['SAMPLES', 'SPECIES', 'ABUNDAN', 'HEADER']
+    optional = ['SAMPLE2']
+    present = listdir(directory)
+
+    if not all(f in present for f in required):
+        print('Warning: Could not find necessary files in directory "%s". '
+              'Skipping...' % directory)
+        return False
+
+    data = {}
+    for fname in required + [f for f in optional if f in present]:
+        data[fname], _ = read_bugin(directory, fname)
+
+    file_fields = ['Name']
+    abund_fields = ['Frequency']
+    species_fields = ['Taxa']
+    sample_fields = [k for k,_ in data['SAMPLES'][0]]
+    header_fields = [k for k,_ in data['HEADER'][0]]
+    if 'SAMPLE2' in data:
+        sample2_fields = [k for k,_ in data['SAMPLE2'][0]]
+    else:
+        fields = convert_fields(binary_types['SAMPLE2'])['field_names']
+        sample2_fields = [field for field in fields if field != '']
+
+    file_data = {'Name' : directory.rstrip('/').split('/')[-1]}
+
+    # write filled-out abundance file
+    with open(path.join(directory, 'clean_abundance.csv'), 'w') as f:
+
+        # write out header
+        f.write(','.join(file_fields + abund_fields + species_fields +\
+                         sample_fields + sample2_fields + header_fields))
+        f.write('\n')
+
+        for n,d in enumerate(data['ABUNDAN'][1:]):
+            vals = []
+
+            vals += [file_data[k] for k in file_fields]
+
+            abund = dict(d)
+            vals += [abund[k] for k in abund_fields]
+
+            spec = dict(data['SPECIES'][abund['Pointer to SPECIES File']])
+            vals += [spec[k] for k in species_fields]
+
+            # TODO: can use a better data structure for speed, if we decide we need it
+            sample = dict(data['SAMPLES'][abund['Pointer to SAMPLES File']])
+
+            if 'SAMPLE2' in data:
+                sample.update(dict(data['SAMPLE2'][abund['Pointer to SAMPLES File']-1]))
+            else:
+                for k in sample2_fields:
+                    sample[k] = ''
+
+            # make sure we actually read the right one
+            assert(sample['Sample Index'] == abund['Pointer to SAMPLES File'])
+
+            vals += [sample[k] for k in sample_fields + sample2_fields]
+
+            # write out the header stuff on the first row
+            if n == 0:
+                header = dict(data['HEADER'][0])
+                vals += [header[k] for k in header_fields]
+
+            str_vals = [str(v) for v in vals]
+            str_vals = [v.join('""') if ',' in v else v for v in str_vals]
+
+            f.write(','.join(str_vals))
+            f.write('\n')
+
+    # write filled-out samples file
+    with open(path.join(directory, 'clean_samples.csv'), 'w') as f:
+
+        # write out header
+        f.write(','.join(file_fields + sample_fields + sample2_fields + header_fields))
+        f.write('\n')
+
+        for n,d in enumerate(data['SAMPLES'][1:]):
+            vals = []
+
+            vals += [file_data[k] for k in file_fields]
+
+            sample = dict(d)
+
+            if 'SAMPLE2' in data:
+                d2 = data['SAMPLE2'][n]
+                sample.update(dict(d2))
+            else:
+                for k in sample2_fields:
+                    sample[k] = ''
+
+            vals += [sample[k] for k in sample_fields + sample2_fields]
+
+            # write out the header stuff
+            header = dict(data['HEADER'][0])
+            vals += [header[k] for k in header_fields]
+
+            str_vals = [str(v) for v in vals]
+            str_vals = [v.join('""') if ',' in v else v for v in str_vals]
+
+            f.write(','.join(str_vals))
+            f.write('\n')
+
+    return True
 
 def parse_and_write(directory):
     '''
@@ -119,6 +276,9 @@ def parse_and_write(directory):
         data, extra_data = read_bugin(directory, ftype)
 
         with open(path.join(directory,ftype+'.csv'), 'w') as f:
+
+            if len(data) == 0:
+                continue
 
             f.write(','.join(k for k,_ in data[0]))
             f.write('\n')
@@ -268,16 +428,18 @@ def bytes_to_list(b, format_spec, field_names):
 
         if fmt['type'] == 'A':
             try:
-                val = cur.decode('ASCII')
+                val = cur.decode('ASCII').strip()
             except UnicodeDecodeError:
+                val = ''
                 print('Decode failed for field "%s". Value was %s' % (name,cur))
 
         elif fmt['type'] == 'I':
-            val = int.from_bytes(cur, 'big')
+            val = int.from_bytes(cur, 'little')
 
         elif fmt['type'] == 'X':
             if DEBUG and cur != b' ':
-                print('Threw away bytes at format index %d:\n%s' % (n, cur))
+                pass
+                #print('Threw away bytes at format index %d:\n%s' % (n, cur))
             continue
 
         elif fmt['type'] == 'F':
@@ -289,7 +451,8 @@ def bytes_to_list(b, format_spec, field_names):
         rtn.append((name,val))
 
     if DEBUG and b:
-        print('Remaining bytes:%s\n' % b)
+        pass
+        #print('Remaining bytes:%s\n' % b)
 
     return rtn
 
@@ -315,29 +478,28 @@ binary_types = {
         'fields' : [
             ('Sample Top',      'F8.2'),
             ('Sample Bottom',   'F8.2'),
-            ('Sample Index',    'I1'),
+            ('Sample Index',    'I2'),
             ('Sample Comment',  'A40'),
-            ('',                '1X'),
             ('Lithology Code',  'A4'),
             ('Lithology Data',  'A25'),
-            ('Bathymetry Top; Bathymetry Bottom', 'A10'),
+            ('Bathymetry Top',  'A5'),
+            ('Bathymetry Bottom','A5'),
             ('Depositional Environment Code', 'A4'),
             ('Depositional Environment Data', 'A32'),
             ('Age Code',        'A6'),
-            ('Zone Information','A50'),
-            ('Stratigraphic Break','A1')
+            ('Zone Code',       'A6'),
+            ('Zone Information','A44'),
+            ('Stratigraphic Break','A8'),
         ],
     },
     'SAMPLE2' : {
         'record_length' : 1020,
         'fields' : [
-            ('Sample Top',      'I2'),
-            ('Sample Bottom',   'I2'),
-            ('Sample Index',    'X52'),
-            ('Sample Comment',  'A248'),
+            ('',                'X60'),
+            ('Lithology',  'A240'),
             ('Bathymetry',      'A240'),
             ('Depositional Environment', 'A240'),
-            ('Zone Information','A240'),
+            ('Zone Information 2','A240'),
         ],
     },
     'SPECIES' : {

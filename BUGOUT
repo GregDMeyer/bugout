@@ -1,12 +1,24 @@
 #!/usr/bin/env python3
 
+'''
+This file is part of BUGOUT
+(c) Greg Meyer, 2018
+'''
+
 from argparse import ArgumentParser
-from utils import retro, parse_dirs
+from utils import retro, parse_dirs_raw, parse_dirs_combined, gen_master_samples
 
 p = ArgumentParser()
 
 p.add_argument('directories', nargs='*',
                 help = 'The directories to be processed.')
+
+p.add_argument('-m', '--master_samples_file', type=str, metavar='FILE',
+                help = 'File in which to accumulate all samples.')
+
+p.add_argument('--raw', action = 'store_true',
+                help = 'Generate raw CSVs of BUGIN files, instead of clean '
+                       'combined files.')
 
 p.add_argument('--retro', action = 'store_true',
                 help = 'Find some illusion of joy in a fallen world.')
@@ -15,7 +27,11 @@ args = p.parse_args()
 
 if args.retro:
     retro()
-elif args.directories:
-    parse_dirs(args.directories)
-else:
+elif not args.directories:
     p.print_help()
+elif args.master_samples_file:
+    gen_master_samples(args.directories, args.master_samples_file)
+elif args.raw:
+    parse_dirs_raw(args.directories)
+else:
+    parse_dirs_combined(args.directories)
