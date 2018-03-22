@@ -7,6 +7,7 @@ This file is part of BUGOUT
 
 from argparse import ArgumentParser
 from utils import retro, parse_dirs_raw, parse_dirs_combined, gen_master_samples
+import validate
 
 p = ArgumentParser()
 
@@ -30,8 +31,12 @@ if args.retro:
 elif not args.directories:
     p.print_help()
 elif args.master_samples_file:
-    gen_master_samples(args.directories, args.master_samples_file)
+    d = validate.directories(args.directories)
+    f = validate.outfile(args.master_samples_file)
+    gen_master_samples(d, f)
 elif args.raw:
-    parse_dirs_raw(args.directories)
+    d = validate.directories(args.directories)
+    parse_dirs_raw(d)
 else:
-    parse_dirs_combined(args.directories)
+    d = validate.directories(args.directories)
+    parse_dirs_combined(d)
