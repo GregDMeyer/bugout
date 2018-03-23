@@ -20,8 +20,8 @@ def read_bugin(directory, file_type):
         The directory to read from
 
     file_type : str
-        Which file to read. Options are SAMPLE, SPECIES, ABUNDAN,
-        USER, SPSADD, HEADER.
+        Which file to read. Options are the keys of the dictionaries containing
+        the format definitions (at the bottom of this file).
     '''
 
     if file_type in binary_types:
@@ -44,6 +44,24 @@ def read_bugin(directory, file_type):
     return rtn, extra_data
 
 def read_user_file(filename, field_names, format_spec, record_length):
+    '''
+    Read a BUGIN file of the same type as the USER file (formatted FORTRAN ASCII).
+
+    Parameters
+    ----------
+    filename : str
+        The file path
+
+    field_names : list
+        A list of the names for the corresponding fields in format_spec.
+
+    format_spec : str
+        A FORTRAN format string.
+
+    record_length : int
+        The number of bytes in a record.
+    '''
+
     contents = []
     field_names = [n for n in field_names if n]
 
@@ -51,7 +69,6 @@ def read_user_file(filename, field_names, format_spec, record_length):
 
     with open(filename, 'r') as f:
         # get through the initial header part
-        # TODO: assert this has the right format
         f.readline()
         qualifiers = []
         for line in f:
@@ -65,6 +82,24 @@ def read_user_file(filename, field_names, format_spec, record_length):
     return contents, qualifiers
 
 def read_ascii_file(filename, field_names):
+    '''
+    Read a BUGIN file in ASCII format.
+
+    Parameters
+    ----------
+    filename : str
+        The file path
+
+    field_names : list
+        A list of the names for the corresponding fields in format_spec.
+
+    format_spec : str
+        A FORTRAN format string.
+
+    record_length : int
+        The number of bytes in a record.
+    '''
+
     with open(filename) as f:
         rtn = [[]]
         n_fields = len(field_names)
@@ -108,6 +143,10 @@ def read_binary_file(filename, field_names, format_spec, record_length):
     return contents
 
 def parse_format_string(s):
+    '''
+    Take a Fortran-stype format string and turn it into a list of type chars
+    and field lengths.
+    '''
     s = s.strip('()')
     vals = s.split(', ')
     rtn = []
@@ -130,6 +169,22 @@ def parse_format_string(s):
     return rtn
 
 def bytes_to_list(b, format_spec, field_names):
+    '''
+    Parse a byte string of binary data, formatted as ``format_spec``, and
+    generate a list of field name-value pairs.
+
+    Parameters
+    ----------
+
+    b : bytes
+        A byte string containing the data.
+
+    format_spec : str
+        A Fortran-style data formatting string.
+
+    field_names : list of str
+        A list of names for the fields enumerated in format_spec.
+    '''
 
     formats = parse_format_string(format_spec)
 
@@ -146,15 +201,23 @@ def bytes_to_list(b, format_spec, field_names):
                 print('Decode failed for field "%s". Value was %s' % (name,cur))
 
         elif fmt['type'] == 'I':
+            # via trial-and-error, it looks like their machines were little-endian
             val = int.from_bytes(cur, 'little')
 
         elif fmt['type'] == 'X':
             if DEBUG and cur != b' ':
                 pass
-                #print('Threw away bytes at format index %d:\n%s' % (n, cur))
+                # print('Threw away bytes at format index %d:\n%s' % (n, cur))
+                #
+                # It turns out that this "space" is sometimes filled with random
+                # bytes or chunks of data from other fields. I think that they
+                # didn't clear the memory they allocated, and sometimes just write
+                # random stuff from memory to disk.
             continue
 
         elif fmt['type'] == 'F':
+            # it turns out their "floating point" format is just an ASCII string
+            # writing the floating point number out.
             try:
                 val = float(cur)
             except:
@@ -164,11 +227,21 @@ def bytes_to_list(b, format_spec, field_names):
 
     if DEBUG and b:
         pass
-        #print('Remaining bytes:%s\n' % b)
+        # print('Remaining bytes:%s\n' % b)
+        #
+        # At first I was concerned when the total sum of the bytes specified in
+        # the format specification was less than the "record length" that
+        # they write to disk. But it turns out they just leave uninitialized
+        # memory left over at the end of each block, and write it to disk anyway.
+        # Gotta love the 80's.
 
     return rtn
 
 def convert_fields(d):
+    '''
+    Convert a list of field name-data format pairs into a Fortran-style format
+    string and a list of field names.
+    '''
 
     rtn = {'field_names' : []}
     fields = []

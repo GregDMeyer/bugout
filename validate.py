@@ -3,6 +3,10 @@ This file is part of BUGOUT
 (c) Greg Meyer, 2018
 '''
 
+'''
+Validate various data types.
+'''
+
 from os.path import isdir, isfile
 
 def directories(dirs):

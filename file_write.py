@@ -12,7 +12,24 @@ DEBUG = True
 
 def combine(directory, do_abund=True):
     '''
-    Read in SAMPLES, SPECIES, ABUNDAN, and HEADER, and collect them into one file.
+    Read in SAMPLES, SAMPLE2, SPECIES, ABUNDAN, and HEADER, and generate the
+    combined output files "clean_abundance.csv" and "clean_samples.csv".
+
+    Parameters
+    ----------
+
+    directory : str
+        The directory in which to look for the files.
+
+    do_abund : bool
+        If set to false, "abundance.csv" will not be created
+
+    Returns
+    -------
+
+    bool
+        Whether the files were successfully generated (i.e. whether all
+        necessary input files could be found).
     '''
 
     if DEBUG:
@@ -33,7 +50,7 @@ def combine(directory, do_abund=True):
     for fname in required + [f for f in optional if f in present]:
         data[fname], _ = read_bugin(directory, fname)
 
-    file_fields = ['Name']
+    file_fields = ['Name', 'Source directory']
     abund_fields = ['Frequency']
     species_fields = ['Taxa']
     sample_fields = [k for k,_ in data['SAMPLES'][0]]
@@ -44,10 +61,12 @@ def combine(directory, do_abund=True):
         fields = convert_fields(binary_types['SAMPLE2'])['field_names']
         sample2_fields = [field for field in fields if field != '']
 
-    file_data = {'Name' : directory.rstrip('/').split('/')[-1]}
+    file_data = {
+        'Source directory' : directory,
+        'Name' : directory.rstrip('/').split('/')[-1]
+    }
 
     if do_abund:
-        # write filled-out abundance file
         with open(path.join(directory, 'clean_abundance.csv'), 'w') as f:
 
             # write out header
@@ -186,9 +205,12 @@ def parse_and_write(directory):
             f.write('\n')
 
             for d in data:
+                # write out the data string, making sure that we put quotes around
+                # commas!
+                # TODO: use csv.writer
                 s = ''
                 for _,v in d:
-                    ss = str(v)
+                    ss = str(v).replace('"','')
                     if ',' in ss:
                         ss = '"%s"' % ss
                     s += ss + ','
