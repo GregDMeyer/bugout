@@ -6,7 +6,8 @@ This file is part of BUGOUT
 '''
 
 from argparse import ArgumentParser
-from utils import retro, parse_dirs_raw, parse_dirs_combined, gen_master_samples
+from retro import retro
+from file_write import gen_master_samples, parse_and_write, combine
 import validate
 
 p = ArgumentParser()
@@ -28,15 +29,21 @@ args = p.parse_args()
 
 if args.retro:
     retro()
+
 elif not args.directories:
     p.print_help()
+
 elif args.master_samples_file:
     d = validate.directories(args.directories)
     f = validate.outfile(args.master_samples_file)
     gen_master_samples(d, f)
+
 elif args.raw:
     d = validate.directories(args.directories)
-    parse_dirs_raw(d)
+    for directory in d:
+        parse_and_write(directory)
+
 else:
     d = validate.directories(args.directories)
-    parse_dirs_combined(d)
+    for directory in d:
+        combine(directory)
