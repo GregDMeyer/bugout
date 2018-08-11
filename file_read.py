@@ -5,7 +5,6 @@ This file is part of BUGOUT
 
 from os import path
 from functools import partial
-from fortranformat import FortranRecordReader
 
 DEBUG = True
 
@@ -65,8 +64,6 @@ def read_user_file(filename, field_names, format_spec, record_length):
     contents = []
     field_names = [n for n in field_names if n]
 
-    reader = FortranRecordReader(format_spec)
-
     with open(filename, 'r') as f:
         # get through the initial header part
         f.readline()
@@ -76,8 +73,7 @@ def read_user_file(filename, field_names, format_spec, record_length):
                 # it's the category qualifier things
                 qualifiers.append(line.strip())
             else:
-                vals = reader.read(line)
-                contents.append(list(zip(field_names, vals)))
+                contents.append(ascii_to_list(line, format_spec, field_names))
 
     return contents, qualifiers
 
@@ -168,6 +164,34 @@ def parse_format_string(s):
 
     return rtn
 
+def ascii_to_list(string, format_spec, field_names):
+    '''
+    Parse an ascii string, formatted as ``format_spec``, and
+    generate a list of field name-value pairs.
+
+    Parameters
+    ----------
+
+    string : str
+        The string of data.
+
+    format_spec : str
+        A Fortran-style data formatting string.
+
+    field_names : list of str
+        A list of names for the fields enumerated in format_spec.
+    '''
+
+    formats = parse_format_string(format_spec)
+
+    rtn = []
+    for fmt, name in zip(formats, field_names):
+        val = string[:fmt['size']]
+        string = string[fmt['size']:]
+        rtn.append((name,val))
+
+    return rtn
+
 def bytes_to_list(b, format_spec, field_names):
     '''
     Parse a byte string of binary data, formatted as ``format_spec``, and
@@ -189,7 +213,7 @@ def bytes_to_list(b, format_spec, field_names):
     formats = parse_format_string(format_spec)
 
     rtn = []
-    for n, (fmt, name) in enumerate(zip(formats, field_names)):
+    for fmt, name in zip(formats, field_names):
         cur = b[:fmt['size']]
         b = b[fmt['size']:]
 
@@ -220,7 +244,7 @@ def bytes_to_list(b, format_spec, field_names):
             # writing the floating point number out.
             try:
                 val = float(cur)
-            except:
+            except ValueError:
                 val = -1
 
         rtn.append((name,val))
