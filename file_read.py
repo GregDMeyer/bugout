@@ -6,7 +6,7 @@ This file is part of BUGOUT
 from os import path
 from functools import partial
 
-DEBUG = True
+DEBUG = False
 
 def read_bugin(directory, file_type):
     '''
@@ -212,6 +212,8 @@ def bytes_to_list(b, format_spec, field_names):
 
     formats = parse_format_string(format_spec)
 
+    orig_bytes = b
+
     rtn = []
     for fmt, name in zip(formats, field_names):
         cur = b[:fmt['size']]
@@ -222,7 +224,8 @@ def bytes_to_list(b, format_spec, field_names):
                 val = cur.decode('ASCII').strip()
             except UnicodeDecodeError:
                 val = ''
-                print('Decode failed for field "%s". Value was %s' % (name,cur))
+                if DEBUG:
+                    print('Decode failed for field "%s". Bytes was %s' % (name,orig_bytes))
 
         elif fmt['type'] == 'I':
             # via trial-and-error, it looks like their machines were little-endian

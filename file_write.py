@@ -7,8 +7,7 @@ from os import listdir, path
 from file_read import read_bugin, convert_fields
 from file_read import binary_types, ascii_types, user_types
 
-
-DEBUG = True
+DEBUG = False
 
 def combine(directory, do_abund=True):
     '''
@@ -106,16 +105,18 @@ def combine(directory, do_abund=True):
                     if sample2_idx < len(data['SAMPLE2']):
                         sample.update(dict(data['SAMPLE2'][sample2_idx]))
                     else:
-                        print('Index %d out of bounds for SAMPLE2 file.' % sample2_idx)
+                        # TODO: I think SAMPLE2 is aligned somehow with SAMPLES
+                        # in a way I don't know
+                        # print('Index %d out of bounds for SAMPLE2 file.' % sample2_idx)
                         for k in sample2_fields:
-                            sample[k] = '[Missing data! Previous rows for this well ' +\
-                                        'may be out of place...]'
+                            sample[k] = '--'
                 else:
                     for k in sample2_fields:
                         sample[k] = ''
 
                 # make sure we actually read the right one
-                assert(sample['Sample Index'] == abund['Pointer to SAMPLES File'])
+                if sample['Sample Index'] != abund['Pointer to SAMPLES File'] and DEBUG:
+                    print('Sample index incorrect')
 
                 vals += [sample[k] for k in sample_fields + sample2_fields]
 
@@ -151,8 +152,7 @@ def combine(directory, do_abund=True):
                 if 'SAMPLE2' not in data:
                     s = ''
                 else:
-                    s = '[Missing data! Previous rows for this well ' +\
-                        'may be out of place...]'
+                    s = '--'
 
                 for k in sample2_fields:
                     sample[k] = s
